@@ -1,72 +1,167 @@
-name: Deploy to VPS
+name: Deploy to VPS Without Docker
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Copy files via SSH
-        uses: appleboy/scp-action@master
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build backend
+        working-directory: backend
+        run: ./mvnw -q -DskipTests package
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare deploy artifacts
+        run: |
+          rm -rf deploy-artifacts
+          mkdir -p deploy-artifacts/frontend
+          cp backend/target/*.jar deploy-artifacts/app.jar
+          cp -R frontend/dist/. deploy-artifacts/frontend/
+
+      - name: Upload artifacts
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP || secrets.SSH_HOST }}
           username: ${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}
           key: ${{ secrets.SERVER_SSH_KEY || secrets.SSH_PRIVATE_KEY }}
+          password: ${{ secrets.SERVER_PASSWORD || secrets.SSH_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || secrets.SSH_PORT || '22022' }}
-          source: "."
-          target: "/home/${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}/diplom_work"
+          source: deploy-artifacts
+          target: /home/${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}/diplomwork-upload
+          rm: true
 
-      - name: SSH Remote Commands
-        uses: appleboy/ssh-action@master
+      - name: Restart services
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_IP || secrets.SSH_HOST }}
           username: ${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}
           key: ${{ secrets.SERVER_SSH_KEY || secrets.SSH_PRIVATE_KEY }}
+          password: ${{ secrets.SERVER_PASSWORD || secrets.SSH_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || secrets.SSH_PORT || '22022' }}
           script: |
-            set -e
-            cd /home/${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}/diplom_work
+            set -euo pipefail
+            APP_DIR=/home/${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}/diplomwork
+            UPLOAD_DIR=/home/${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}/diplomwork-upload/deploy-artifacts
+            SUDO_PASS='${{ secrets.SERVER_PASSWORD || secrets.SSH_PASSWORD }}'
 
-            if [ ! -f .env ]; then
-              POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
-              JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}"
-
-              if [ -z "$POSTGRES_PASSWORD" ]; then
-                POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+            sudo_run() {
+              if sudo -n true 2>/dev/null; then
+                sudo "$@"
+              else
+                printf '%s\n' "$SUDO_PASS" | sudo -S -p '' "$@"
               fi
+            }
 
-              if [ -z "$JWT_SECRET_KEY" ]; then
-                JWT_SECRET_KEY="$(openssl rand -hex 48)"
-              fi
+            mkdir -p "$APP_DIR/backend" "$APP_DIR/frontend"
+            cp "$UPLOAD_DIR/app.jar" "$APP_DIR/backend/app.jar"
+            rsync -a --delete "$UPLOAD_DIR/frontend/" "$APP_DIR/frontend/"
 
-              umask 077
-              cat > .env <<EOF
-            POSTGRES_DB=${{ secrets.POSTGRES_DB || 'ai_finance_db' }}
-            POSTGRES_USER=${{ secrets.POSTGRES_USER || 'postgres' }}
-            POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-            JWT_SECRET_KEY=$JWT_SECRET_KEY
-            JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION || '86400000' }}
-            BACKEND_PORT=${{ secrets.BACKEND_PORT || '8097' }}
-            FRONTEND_PORT=${{ secrets.FRONTEND_PORT || '5178' }}
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID || 'dev-google-client-id' }}
-            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET || 'dev-google-client-secret' }}
+            if [ ! -f "$APP_DIR/backend/app.env" ]; then
+              DB_PASS="$(openssl rand -hex 24)"
+              JWT_SECRET="$(openssl rand -hex 48)"
+              cat > "$APP_DIR/backend/app.env" <<EOF
+            SERVER_PORT=8097
+            SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5432/ai_finance_db
+            SPRING_DATASOURCE_USERNAME=diplom_app
+            SPRING_DATASOURCE_PASSWORD=$DB_PASS
+            JWT_SECRET_KEY=$JWT_SECRET
+            JWT_EXPIRATION=86400000
+            GOOGLE_CLIENT_ID=dev-google-client-id
+            GOOGLE_CLIENT_SECRET=dev-google-client-secret
+            STAT_UZ_API_ENABLED=true
+            CBU_UZ_API_ENABLED=true
             EOF
+              chmod 600 "$APP_DIR/backend/app.env"
             fi
 
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE="docker compose"
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE="docker-compose"
-            else
-              echo "Docker Compose is not installed on the server."
-              exit 1
-            fi
+            DB_PASS="$(grep '^SPRING_DATASOURCE_PASSWORD=' "$APP_DIR/backend/app.env" | cut -d= -f2-)"
+            sudo_run runuser -u postgres -- psql -v ON_ERROR_STOP=1 <<SQL
+            DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'diplom_app') THEN
+                CREATE ROLE diplom_app LOGIN PASSWORD '$DB_PASS';
+              ELSE
+                ALTER ROLE diplom_app WITH LOGIN PASSWORD '$DB_PASS';
+              END IF;
+            END
+            \$\$;
+            SELECT 'CREATE DATABASE ai_finance_db OWNER diplom_app'
+            WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'ai_finance_db')\gexec
+            ALTER DATABASE ai_finance_db OWNER TO diplom_app;
+            GRANT ALL PRIVILEGES ON DATABASE ai_finance_db TO diplom_app;
+            SQL
 
-            $COMPOSE down --remove-orphans
-            $COMPOSE up -d --build
-            $COMPOSE ps
+            sudo_run mkdir -p /var/www/diplomwork
+            sudo_run rsync -a --delete "$APP_DIR/frontend/" /var/www/diplomwork/
+            sudo_run chown -R www-data:www-data /var/www/diplomwork
+
+            sudo_run tee /etc/systemd/system/diplomwork-backend.service >/dev/null <<EOF
+            [Unit]
+            Description=DiplomWork Spring Boot Backend
+            After=network.target postgresql.service
+            Wants=postgresql.service
+
+            [Service]
+            User=${{ secrets.SERVER_USER || secrets.SSH_USERNAME }}
+            WorkingDirectory=$APP_DIR/backend
+            EnvironmentFile=$APP_DIR/backend/app.env
+            ExecStart=/usr/bin/java -jar $APP_DIR/backend/app.jar
+            SuccessExitStatus=143
+            Restart=always
+            RestartSec=5
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            sudo_run tee /etc/nginx/sites-available/diplomwork >/dev/null <<'EOF'
+            server {
+                listen 5178;
+                server_name _;
+
+                root /var/www/diplomwork;
+                index index.html;
+
+                location /api/ {
+                    proxy_pass http://127.0.0.1:8097/api/;
+                    proxy_http_version 1.1;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                }
+
+                location / {
+                    try_files $uri $uri/ /index.html;
+                }
+            }
+            EOF
+
+            sudo_run ln -sfn /etc/nginx/sites-available/diplomwork /etc/nginx/sites-enabled/diplomwork
+            sudo_run systemctl daemon-reload
+            sudo_run systemctl enable diplomwork-backend.service
+            sudo_run systemctl restart diplomwork-backend.service
+            sudo_run nginx -t
+            sudo_run systemctl reload nginx
