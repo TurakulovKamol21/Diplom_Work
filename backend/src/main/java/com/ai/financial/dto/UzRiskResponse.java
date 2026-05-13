@@ -7,6 +7,7 @@ public class UzRiskResponse {
     private String assessmentDate;
     private String marketRiskLevel;
     private Double economicStabilityScore;
+    private Double instabilityProbability;
     private Double inflationSurgeProbability;
     private Double currencyDevaluationProbability;
     private Double recessionProbability;
@@ -18,6 +19,7 @@ public class UzRiskResponse {
         this.assessmentDate = assessment.getAssessmentDate().toString();
         this.marketRiskLevel = assessment.getMarketRiskLevel();
         this.economicStabilityScore = assessment.getEconomicStabilityScore();
+        this.instabilityProbability = assessment.getInstabilityProbability();
         this.inflationSurgeProbability = assessment.getInflationSurgeProbability();
         this.currencyDevaluationProbability = assessment.getCurrencyDevaluationProbability();
         this.recessionProbability = assessment.getRecessionProbability();
@@ -33,6 +35,9 @@ public class UzRiskResponse {
 
     public Double getEconomicStabilityScore() { return economicStabilityScore; }
     public void setEconomicStabilityScore(Double economicStabilityScore) { this.economicStabilityScore = economicStabilityScore; }
+
+    public Double getInstabilityProbability() { return instabilityProbability; }
+    public void setInstabilityProbability(Double instabilityProbability) { this.instabilityProbability = instabilityProbability; }
 
     public Double getInflationSurgeProbability() { return inflationSurgeProbability; }
     public void setInflationSurgeProbability(Double inflationSurgeProbability) { this.inflationSurgeProbability = inflationSurgeProbability; }

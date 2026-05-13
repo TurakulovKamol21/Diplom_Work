@@ -1,27 +1,67 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import React, { createContext, useContext, useState } from 'react';
 
 const AuthContext = createContext(null);
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+function safeStorageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (error) {
+    console.warn(`Unable to read localStorage key "${key}"`, error);
+    return null;
+  }
+}
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    const username = localStorage.getItem('username');
-    if (token && username) setUser({ username, token });
-    setLoading(false);
-  }, []);
+function safeStorageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn(`Unable to write localStorage key "${key}"`, error);
+  }
+}
+
+function safeStorageRemove(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch (error) {
+    console.warn(`Unable to remove localStorage key "${key}"`, error);
+  }
+}
+
+function isJwtLike(token) {
+  return typeof token === 'string' && token.split('.').length === 3;
+}
+
+function readStoredUser() {
+  const token = safeStorageGet('token');
+  const username = safeStorageGet('username');
+
+  if (!token && !username) {
+    return null;
+  }
+
+  if (!isJwtLike(token) || !username) {
+    safeStorageRemove('token');
+    safeStorageRemove('username');
+    return null;
+  }
+
+  return { username, token };
+}
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(readStoredUser);
+  const loading = false;
 
   const login = (token, username) => {
-    localStorage.setItem('token', token);
-    localStorage.setItem('username', username);
+    safeStorageSet('token', token);
+    safeStorageSet('username', username);
     setUser({ username, token });
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
+    safeStorageRemove('token');
+    safeStorageRemove('username');
     setUser(null);
   };
 

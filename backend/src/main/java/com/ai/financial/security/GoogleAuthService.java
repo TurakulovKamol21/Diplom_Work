@@ -21,7 +21,7 @@ import java.util.UUID;
 @Service
 public class GoogleAuthService {
 
-    @Value("${spring.security.oauth2.client.registration.google.client-id}")
+    @Value("${spring.security.oauth2.client.registration.google.client-id:dev-google-client-id}")
     private String clientId;
 
     private final UserRepository userRepository;
@@ -43,6 +43,10 @@ public class GoogleAuthService {
     }
 
     public String authenticateWithGoogle(String idTokenString) throws Exception {
+        if (clientId == null || clientId.isBlank() || "dev-google-client-id".equals(clientId)) {
+            throw new IllegalStateException("Google OAuth client is not configured.");
+        }
+
         GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), new GsonFactory())
                 .setAudience(Collections.singletonList(clientId))
                 .build();

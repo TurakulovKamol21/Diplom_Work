@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   TrendingUp, LayoutDashboard, Shield, BarChart2,
-  LogOut, Sun, Moon, Database
+  LogOut, Sun, Moon, Database, Settings2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -15,10 +15,10 @@ export default function AppShell({ children, theme, toggleTheme }) {
 
   const navItems = [
     { label: t('dashboard'),    icon: LayoutDashboard, path: '/dashboard' },
-    { label: t('marketData'),  icon: Database,        path: '/market-data' },
+    { label: t('marketData'),   icon: Database,        path: '/market-data' },
     { label: t('predictions'),  icon: BarChart2,        path: '/predictions' },
     { label: t('riskAnalysis'),icon: Shield,           path: '/risk' },
-    { label: t('settings'),     icon: Database,         path: '/settings' },
+    { label: t('settings'),     icon: Settings2,        path: '/settings' },
   ];
 
   const handleLogout = () => { logout(); navigate('/'); };
@@ -29,7 +29,7 @@ export default function AppShell({ children, theme, toggleTheme }) {
       <aside className="sidebar">
         <div className="sidebar-logo">
           <div className="logo-icon"><TrendingUp size={18}/></div>
-          <span>AI Finance<small>{t('predictions')}</small></span>
+          <span>{t('macroBrand')}<small>{t('macroBrandSubtitle')}</small></span>
         </div>
 
         {navItems.map(item => (
@@ -60,7 +60,7 @@ export default function AppShell({ children, theme, toggleTheme }) {
       <div className="main-content">
         {/* Topbar */}
         <header className="topbar">
-          <h1>AI Financial Market Analysis</h1>
+          <h1>{t('macroPlatformTitle')}</h1>
           <div className="topbar-right">
             <div className="lang-selector" style={{ display:'flex', gap:4, marginRight:10 }}>
               {['en','ru','uz'].map(l => (

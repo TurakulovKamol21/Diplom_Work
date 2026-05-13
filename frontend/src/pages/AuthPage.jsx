@@ -1,10 +1,42 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, Lock, User, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { GoogleLogin } from '@react-oauth/google';
+import { GoogleLogin, GoogleOAuthProvider } from '@react-oauth/google';
 import { authService } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
+
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  '923770885408-8oq940hu2r40e3c2uqtgocs3n7737cmb.apps.googleusercontent.com';
+
+function getErrorMessage(error, fallback = 'Something went wrong. Please try again.') {
+  const payload = error?.response?.data;
+
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload;
+  }
+
+  if (payload && typeof payload === 'object') {
+    if (typeof payload.message === 'string' && payload.message.trim()) {
+      return payload.message;
+    }
+
+    if (typeof payload.error === 'string' && payload.error.trim()) {
+      return payload.error;
+    }
+
+    if (typeof payload.status === 'number' && typeof payload.path === 'string') {
+      return `${payload.status} ${payload.error || 'Request failed'} (${payload.path})`;
+    }
+  }
+
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallback;
+}
 
 export default function AuthPage() {
   const [mode, setMode]         = useState('login'); // 'login' | 'register'
@@ -35,7 +67,7 @@ export default function AuthPage() {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError(err.response?.data || 'Something went wrong. Please try again.');
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -52,11 +84,13 @@ export default function AuthPage() {
       login(res.data.token, 'GoogleUser'); // Simplified for UI
       navigate('/dashboard');
     } catch (err) {
-      setError('Google authentication failed. ' + (err.response?.data || err.message));
+      setError(`Google authentication failed. ${getErrorMessage(err, 'Please try again.')}`);
     } finally {
       setLoading(false);
     }
   };
+
+  const googleLoginAvailable = Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_ID.trim());
 
   return (
     <div className="auth-page">
@@ -105,15 +139,18 @@ export default function AuthPage() {
         {error   && <div className="alert alert-error"><AlertCircle size={14} style={{marginRight:6,verticalAlign:'middle'}}/>{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
 
-        <div style={{ marginBottom: 20 }}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => setError('Google Login Failed')}
-            useOneTap
-            width="100%"
-            shape="rectangular"
-          />
-        </div>
+        {googleLoginAvailable && (
+          <div style={{ marginBottom: 20 }}>
+            <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError(t('googleLoginFailed'))}
+                width="100%"
+                shape="rectangular"
+              />
+            </GoogleOAuthProvider>
+          </div>
+        )}
 
         <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0' }}>
             <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />

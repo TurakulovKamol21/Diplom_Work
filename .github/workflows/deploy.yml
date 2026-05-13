@@ -1,0 +1,70 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Copy files via SSH
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "."
+          target: "/home/${{ secrets.SERVER_USER }}/diplom_work"
+
+      - name: SSH Remote Commands
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/${{ secrets.SERVER_USER }}/diplom_work
+
+            if [ ! -f .env ]; then
+              POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+              JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}"
+
+              if [ -z "$POSTGRES_PASSWORD" ]; then
+                POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+              fi
+
+              if [ -z "$JWT_SECRET_KEY" ]; then
+                JWT_SECRET_KEY="$(openssl rand -hex 48)"
+              fi
+
+              umask 077
+              cat > .env <<EOF
+            POSTGRES_DB=${{ secrets.POSTGRES_DB || 'ai_finance_db' }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER || 'postgres' }}
+            POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+            JWT_SECRET_KEY=$JWT_SECRET_KEY
+            JWT_EXPIRATION=${{ secrets.JWT_EXPIRATION || '86400000' }}
+            BACKEND_PORT=${{ secrets.BACKEND_PORT || '8097' }}
+            FRONTEND_PORT=${{ secrets.FRONTEND_PORT || '5178' }}
+            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID || 'dev-google-client-id' }}
+            GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET || 'dev-google-client-secret' }}
+            EOF
+            fi
+
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE="docker compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE="docker-compose"
+            else
+              echo "Docker Compose is not installed on the server."
+              exit 1
+            fi
+
+            $COMPOSE down --remove-orphans
+            $COMPOSE up -d --build
+            $COMPOSE ps

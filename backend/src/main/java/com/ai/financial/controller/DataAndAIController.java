@@ -4,6 +4,8 @@ import com.ai.financial.entity.*;
 import com.ai.financial.repository.*;
 import com.ai.financial.service.*;
 import com.ai.financial.dto.MacroForecastResponse;
+import com.ai.financial.dto.BacktestResponse;
+import com.ai.financial.dto.ScenarioAnalysisResponse;
 import com.ai.financial.dto.UzRiskResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -79,5 +81,15 @@ public class DataAndAIController {
     public ResponseEntity<UzRiskResponse> getRisk() {
         // Probability-based stability evaluator
         return ResponseEntity.ok(riskService.generateRiskAssessment());
+    }
+
+    @GetMapping("/scenario-analysis")
+    public ResponseEntity<ScenarioAnalysisResponse> getScenarioAnalysis() {
+        return ResponseEntity.ok(aiService.generateScenarioAnalysis());
+    }
+
+    @GetMapping("/backtest")
+    public ResponseEntity<BacktestResponse> getBacktest() {
+        return ResponseEntity.ok(aiService.generateBacktestReport());
     }
 }
